@@ -195,7 +195,7 @@ def gen_dropout_mask(out_shape, unet_controller: Optional[UNetController], drop_
     return concatenated_mask
 
 
-def load_pipe_from_path(model_path, device, torch_dtype, variant):
+def load_pipe_from_path(model_path, device, torch_dtype, variant, control_model_path=None):
     model_name = model_path.split('/')[-1]
     if model_path.split('/')[-1] == 'playground-v2.5-1024px-aesthetic':
         scheduler = EDMDPMSolverMultistepScheduler.from_pretrained(model_path, subfolder="scheduler", torch_dtype=torch_dtype, variant=variant,)
@@ -211,11 +211,15 @@ def load_pipe_from_path(model_path, device, torch_dtype, variant):
     text_encoder = CLIPTextModel.from_pretrained(model_path, subfolder="text_encoder", torch_dtype=torch_dtype, variant=variant,)
     text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(model_path, subfolder="text_encoder_2", torch_dtype=torch_dtype, variant=variant,)
     unet_new = UNet2DConditionModel.from_pretrained(model_path, subfolder="unet", torch_dtype=torch_dtype, variant=variant,)
-    controlnet = ControlNetModel.from_pretrained("diffusers/controlnet-depth-sdxl-1.0-small",  torch_dtype=torch_dtype)
 
+    controlnet = None
+    if control_model_path is not None:
+        if "openpose" in control_model_path:
+            controlnet = ControlNetModel.from_pretrained(control_model_path, torch_dtype=torch_dtype)
+        else:
+            controlnet = ControlNetModel.from_pretrained(control_model_path, torch_dtype=torch_dtype, variant=variant)
 
     pipe = pipeline_stable_diffusion_xl_controlnet.StableDiffusionXLControlNetPipeline(
-    #pipe = pipeline_stable_diffusion_xl.StableDiffusionXLPipeline(
         vae=vae,
         text_encoder=text_encoder,
         text_encoder_2=text_encoder_2,
@@ -242,7 +246,7 @@ def get_max_window_length(unet_controller: Optional[UNetController],id_prompt, f
     return max_window_length
 
 
-def movement_gen_story_slide_windows(id_prompt, frame_prompt_list, pipe, window_length, seed, unet_controller: Optional[UNetController], save_dir, verbose=True, control_image=None):
+def movement_gen_story_slide_windows(id_prompt, frame_prompt_list, pipe, window_length, seed, unet_controller: Optional[UNetController], save_dir, verbose=True, control_images=None):
     import os
     max_window_length = get_max_window_length(unet_controller,id_prompt,frame_prompt_list)
     window_length = min(window_length,max_window_length)
@@ -283,7 +287,7 @@ def movement_gen_story_slide_windows(id_prompt, frame_prompt_list, pipe, window_
         if unet_controller is not None and unet_controller.Use_same_init_noise is True:     
             generate = torch.Generator().manual_seed(seed)
 
-        images = pipe(gen_propmts, image=control_image, generator=generate, unet_controller=unet_controller).images
+        images = pipe(gen_propmts, image=control_images[index], generator=generate, unet_controller=unet_controller).images
         story_images.append(images[0])
         images[0].save(os.path.join(save_dir, f'{id_prompt} {unet_controller.frame_prompt_express}.jpg'))
 

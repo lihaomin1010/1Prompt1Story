@@ -11,6 +11,8 @@ from typing import Optional
 
 from unet.unet_controller import UNetController
 import unet.utils as utils
+
+from typing import Tuple
 # SDXL
 
 
@@ -97,7 +99,7 @@ class ResnetBlock2D(nn.Module):
 
 class Attention(nn.Module):
     def __init__(
-        self, inner_dim, cross_attention_dim=None, num_heads=None, dropout=0.0
+            self, inner_dim, cross_attention_dim=None, num_heads=None, dropout=0.0
     ):
         super(Attention, self).__init__()
         if num_heads is None:
@@ -107,7 +109,7 @@ class Attention(nn.Module):
             self.num_heads = num_heads
             self.head_dim = inner_dim // num_heads
 
-        self.scale = self.head_dim**-0.5
+        self.scale = self.head_dim ** -0.5
         if cross_attention_dim is None:
             cross_attention_dim = inner_dim
         self.to_q = nn.Linear(inner_dim, inner_dim, bias=False)
@@ -135,15 +137,15 @@ class Attention(nn.Module):
         q = q.view(q.size(0), q.size(1), self.num_heads, self.head_dim).transpose(1, 2)
         k = k.view(k.size(0), k.size(1), self.num_heads, self.head_dim).transpose(1, 2)
         v = v.view(v.size(0), v.size(1), self.num_heads, self.head_dim).transpose(1, 2)
-        
 
-        if (unet_controller is not None and unet_controller.Use_ipca and unet_controller.current_unet_position in unet_controller.Ipca_position
-              and encoder_hidden_states is not None and unet_controller.current_time_step >= unet_controller.Ipca_start_step):
-            
+        if (
+                unet_controller is not None and unet_controller.Use_ipca and unet_controller.current_unet_position in unet_controller.Ipca_position
+                and encoder_hidden_states is not None and unet_controller.current_time_step >= unet_controller.Ipca_start_step):
+
             if unet_controller.do_classifier_free_guidance is True:
                 scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
                 attn_weights = torch.softmax(scores, dim=-1)  # this is only used by cross_attn_map store
-                ipca_attn_output = utils.ipca2(q,k,v,self.scale,unet_controller=unet_controller)
+                ipca_attn_output = utils.ipca2(q, k, v, self.scale, unet_controller=unet_controller)
                 attn_output = ipca_attn_output
             else:
                 exit("current doesn't support cfg=1.0")
@@ -204,16 +206,16 @@ class BasicTransformerBlock(nn.Module):
         residual = x
 
         x = self.norm1(x)
-        x = self.attn1(x, unet_controller=unet_controller,)
+        x = self.attn1(x, unet_controller=unet_controller, )
         x = x + residual
 
         residual = x
 
         x = self.norm2(x)
         if encoder_hidden_states is not None:
-            x = self.attn2(x, encoder_hidden_states, unet_controller=unet_controller,)
+            x = self.attn2(x, encoder_hidden_states, unet_controller=unet_controller, )
         else:
-            x = self.attn2(x, unet_controller=unet_controller,)
+            x = self.attn2(x, unet_controller=unet_controller, )
         x = x + residual
 
         residual = x
@@ -245,7 +247,7 @@ class Transformer2DModel(nn.Module):
         hidden_states = self.proj_in(hidden_states)
 
         for block in self.transformer_blocks:
-            hidden_states = block(hidden_states, encoder_hidden_states, unet_controller=unet_controller,)
+            hidden_states = block(hidden_states, encoder_hidden_states, unet_controller=unet_controller, )
 
         hidden_states = self.proj_out(hidden_states)
         hidden_states = (
@@ -362,7 +364,8 @@ class CrossAttnUpBlock2D(nn.Module):
         self.upsamplers = nn.ModuleList([Upsample2D(out_channels, out_channels)])
 
     def forward(
-        self, hidden_states, res_hidden_states_tuple, temb, encoder_hidden_states, unet_controller: Optional[UNetController] = None, 
+            self, hidden_states, res_hidden_states_tuple, temb, encoder_hidden_states,
+            unet_controller: Optional[UNetController] = None,
     ):
         for resnet, attn in zip(self.resnets, self.attentions):
             # pop res hidden states
@@ -429,7 +432,8 @@ class UNetMidBlock2DCrossAttn(nn.Module):
             ]
         )
 
-    def forward(self, hidden_states, temb=None, encoder_hidden_states=None, unet_controller: Optional[UNetController] = None):
+    def forward(self, hidden_states, temb=None, encoder_hidden_states=None,
+                unet_controller: Optional[UNetController] = None):
         hidden_states = self.resnets[0](hidden_states, temb)
         for attn, resnet in zip(self.attentions, self.resnets[1:]):
             hidden_states = attn(
@@ -444,7 +448,7 @@ class UNetMidBlock2DCrossAttn(nn.Module):
 
 class UNet2DConditionModel(ModelMixin, ConfigMixin):
     def __init__(self):
-        super(UNet2DConditionModel, self).__init__() ## init child class first
+        super(UNet2DConditionModel, self).__init__()  ## init child class first
 
         # This is needed to imitate huggingface config behavior
         # has nothing to do with the model itself
@@ -496,9 +500,11 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin):
         self.conv_act = nn.SiLU()
         self.conv_out = nn.Conv2d(320, 4, kernel_size=3, stride=1, padding=1)
 
-    
     def forward(
-        self, sample, timesteps, encoder_hidden_states, added_cond_kwargs, unet_controller: Optional[UNetController] = None, **kwargs
+            self, sample, timesteps, encoder_hidden_states, added_cond_kwargs,
+            down_block_additional_residuals: Optional[Tuple[torch.Tensor]] = None,
+            mid_block_additional_residual: Optional[torch.Tensor] = None,
+            unet_controller: Optional[UNetController] = None, **kwargs
     ):
         # Implement the forward pass through the model
         timesteps = timesteps.expand(sample.shape[0])
@@ -520,36 +526,57 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin):
 
         sample = self.conv_in(sample)
 
+        down_block_res_samples = (sample,)
+
+        is_controlnet = mid_block_additional_residual is not None and down_block_additional_residuals is not None
         # 3. down
         if unet_controller is not None:
             unet_controller.current_unet_position = 'down0'
-        
+
         s0 = sample
-        sample, [s1, s2, s3] = self.down_blocks[0](
+        sample, res_samples = self.down_blocks[0](
             sample,
             temb=emb,
         )
+        [s1, s2, s3] = res_samples
+        down_block_res_samples += (s1, s2, s3)
 
         if unet_controller is not None:
             unet_controller.current_unet_position = 'down1'
 
         # encoder_hidden_states is prompt_embedings, so here do cross_attn
-        sample, [s4, s5, s6] = self.down_blocks[1](
+        sample, res_samples = self.down_blocks[1](
             sample,
-            temb=emb, # time_embbeding
-            encoder_hidden_states=encoder_hidden_states, #[2,77,2048], 2 means two branch, 1 for prompt, 1 for negative prompt
+            temb=emb,  # time_embbeding
+            encoder_hidden_states=encoder_hidden_states,
+            # [2,77,2048], 2 means two branch, 1 for prompt, 1 for negative prompt
             unet_controller=unet_controller,
         )
+        [s4, s5, s6] = res_samples
+        down_block_res_samples += (s4, s5, s6)
 
         if unet_controller is not None:
             unet_controller.current_unet_position = 'down2'
 
-        sample, [s7, s8] = self.down_blocks[2](
+        sample, res_samples = self.down_blocks[2](
             sample,
             temb=emb,
             encoder_hidden_states=encoder_hidden_states,
             unet_controller=unet_controller,
         )
+        [s7, s8] = res_samples
+        down_block_res_samples += (s7, s8)
+
+        if is_controlnet:
+            new_down_block_res_samples = ()
+
+            for down_block_res_sample, down_block_additional_residual in zip(
+                down_block_res_samples, down_block_additional_residuals
+            ):
+                down_block_res_sample = down_block_res_sample + down_block_additional_residual
+                new_down_block_res_samples = new_down_block_res_samples + (down_block_res_sample,)
+
+            down_block_res_samples = new_down_block_res_samples
 
         # 4. mid
         if unet_controller is not None:
@@ -559,6 +586,10 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin):
             sample, emb, encoder_hidden_states=encoder_hidden_states, unet_controller=unet_controller,
         )
 
+        if is_controlnet:
+            sample = sample + mid_block_additional_residual
+
+
         # 5. up
         if unet_controller is not None:
             unet_controller.current_unet_position = 'up0'
@@ -566,7 +597,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin):
         sample = self.up_blocks[0](
             hidden_states=sample,
             temb=emb,
-            res_hidden_states_tuple=[s6, s7, s8],
+            res_hidden_states_tuple=list(down_block_res_samples[6:]),
             encoder_hidden_states=encoder_hidden_states,
             unet_controller=unet_controller,
         )
@@ -577,7 +608,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin):
         sample = self.up_blocks[1](
             hidden_states=sample,
             temb=emb,
-            res_hidden_states_tuple=[s3, s4, s5],
+            res_hidden_states_tuple=list(down_block_res_samples[3:6]),
             encoder_hidden_states=encoder_hidden_states,
             unet_controller=unet_controller,
         )
@@ -588,7 +619,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin):
         sample = self.up_blocks[2](
             hidden_states=sample,
             temb=emb,
-            res_hidden_states_tuple=[s0, s1, s2],
+            res_hidden_states_tuple=list(down_block_res_samples[:3]),
         )
 
         # 6. post-process
