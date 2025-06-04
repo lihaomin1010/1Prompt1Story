@@ -27,13 +27,17 @@ def generate_images(unet_controller: UNetController, pipe, id_prompt, frame_prom
         original_prompt_embeds_mode = unet_controller.Prompt_embeds_mode
         unet_controller.Prompt_embeds_mode = "original"
         #_ = pipe(id_prompt, generator=generate, unet_controller=unet_controller).images
-        _ = pipe(id_prompt, image=control_image_list[0], generator=generate, unet_controller=unet_controller, ).images
+        img_0 = pipe(id_prompt, image=control_image_list[0], generator=generate, unet_controller=unet_controller, num_inference_steps=50, controlnet_conditioning_scale=args.cn_scale).images[0]
+        # img_0 = pipe(id_prompt, negative_prompt="blurry, lowres, cartoon, 3d render, bad anatomy, extra limbs",
+        #              image=control_image_list[0], generator=generate, unet_controller=unet_controller,
+        #              num_inference_steps=80).images[0]
+        img_0.save(os.path.join(save_dir, 'id_prompt.jpg'))
         unet_controller.Prompt_embeds_mode = original_prompt_embeds_mode
 
 
     unet_controller.Store_qkv = False
     images, story_image = utils.movement_gen_story_slide_windows(
-        id_prompt, frame_prompt_list, pipe, window_length, seed, unet_controller, save_dir, verbose=verbose, control_images=control_image_list[1:]
+        id_prompt, frame_prompt_list, pipe, window_length, seed, unet_controller, save_dir, verbose=verbose, control_images=control_image_list[1:], cn_scale=args.cn_scale
     )
 
     return images, story_image
@@ -54,14 +58,19 @@ def main(device, model_path, save_dir, id_prompt, frame_prompt_list, precision, 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate images using a specific device.")
     parser.add_argument('--device', type=str, default='cuda:0', help='Device to use for computation (e.g., cuda:0, cpu)')
-    parser.add_argument('--model_path', type=str, default='stabilityai/stable-diffusion-xl-base-1.0', help='Path to the model')
-    parser.add_argument('--control_model_path', type=str, default='thibaud/controlnet-openpose-sdxl-1.0', help='Path to the controlnet model')
+    parser.add_argument('--model_path', type=str, default='playgroundai/playground-v2.5-1024px-aesthetic', help='Path to the model')
+    parser.add_argument('--control_model_path', type=str, default=None, help='Path to the controlnet model')
     parser.add_argument('--project_base_path', type=str, default='.', help='Path to save the generated images')
-    parser.add_argument('--id_prompt', type=str, default="A photo of a red fox with coat", help='Initial prompt for image generation')
+    #parser.add_argument('--id_prompt', type=str, default="A photorealistic image of an old teacher", help='Initial prompt for image generation')
+
+    # parser.add_argument('--id_prompt', type=str, default="a portrait  photo of professional middle-aged Asian female teacher, single subject, standing confidently in front of a plain background, soft natural lighting, photorealistic, 4k, high detail, neutral expression, clean background, DSLR style",
+    #                     help='Initial prompt for image generation')
+    parser.add_argument('--id_prompt', type=str, default="A photo of a elderly gentleman",
+                        help='Initial prompt for image generation')
     parser.add_argument('--frame_prompt_list', type=str, nargs='+', default=[
-        "wearing a scarf in a meadow",
-        "playing in the snow",
-        "at the edge of a village with river",
+        "cross-legged on a mountain, surrounded by ancient scrolls",
+        "sitting on a bench under cherry blossoms",
+        "sitting in a sunny garden, playing with a puppy",
     ], help='List of frame prompts')
     parser.add_argument('--control_image_list', type=str, nargs='+', default=[
         "resource/controlnet/white.png",
@@ -75,7 +84,7 @@ if __name__ == "__main__":
     parser.add_argument('--save_padding', type=str, default='test', help='Padding for save directory')
     parser.add_argument('--random_seed', action='store_true', help='Use random seed')
     parser.add_argument('--json_path', type=str,)
-    
+    parser.add_argument('--cn_scale', type=float, default=1.0, help='control_net scale for generation')
     args = parser.parse_args()
     if args.random_seed:
         args.seed = random.randint(0, 1000000)

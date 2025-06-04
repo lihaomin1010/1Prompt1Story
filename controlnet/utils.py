@@ -44,6 +44,8 @@ def pre_process_images(control_net, images_f):
         p_images = [get_canny_image(image) for image in images]
     elif "depth" in control_net:
         p_images = [get_depth_map(image) for image in images]
+    for i in range(len(p_images)):
+        p_images[i].save(f"demo/{i}.png")
     return p_images
 
 
