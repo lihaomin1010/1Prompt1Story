@@ -39,6 +39,7 @@ from PIL import Image
 from torchvision import transforms
 from tqdm.auto import tqdm
 from transformers import AutoTokenizer, PretrainedConfig
+from unet.unet_controller import UNetController
 
 import diffusers
 from diffusers import (
@@ -46,9 +47,12 @@ from diffusers import (
     ControlNetModel,
     DDPMScheduler,
     StableDiffusionControlNetPipeline,
-    UNet2DConditionModel,
+    #UNet2DConditionModel,
     UniPCMultistepScheduler,
 )
+
+from unet.unet import UNet2DConditionModel
+
 from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.hub_utils import load_or_create_model_card, populate_model_card
@@ -1038,6 +1042,12 @@ def main(args):
         disable=not accelerator.is_local_main_process,
     )
 
+
+    unet_controller = UNetController()
+    unet_controller.tokenizer =tokenizer
+
+    unet_controller.Store_qkv = False
+
     image_logs = None
     for epoch in range(first_epoch, args.num_train_epochs):
         for step, batch in enumerate(train_dataloader):
@@ -1082,6 +1092,7 @@ def main(args):
                     ],
                     mid_block_additional_residual=mid_block_res_sample.to(dtype=weight_dtype),
                     return_dict=False,
+                    unet_controller=unet_controller,
                 )[0]
 
                 # Get the target for loss depending on the prediction type
